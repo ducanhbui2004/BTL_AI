@@ -1,109 +1,132 @@
 import cv2
 import mediapipe as mp
-import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
-import av
-import warnings
+import argparse
 
 from utils.feature_extraction import *
 from utils.strings import *
 from utils.model import ASLClassificationModel
 from config import MODEL_NAME, MODEL_CONFIDENCE
 
-# Bỏ qua cảnh báo
+import streamlit as st
+
+# Temporarily ignore warning
+import warnings
 warnings.filterwarnings("ignore")
 
-# Giao diện Streamlit
-st.set_page_config(layout="wide")
-st.markdown("""
-    <style>
-        .big-font {
-            color: #e76f51 !important;
-            font-size: 60px !important;
-            border: 0.5rem solid #fcbf49 !important;
-            border-radius: 2rem;
-            text-align: center;
-        }
-    </style>
-""", unsafe_allow_html=True)
+# Initialize MediaPipe Holistic
+mp_holistic = mp.solutions.holistic
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
 
-# Chia cột
-col1, col2 = st.columns([4, 2])
-prediction_placeholder = col2.empty()
+if __name__ == "__main__":
+    # Initialize the webcam
+    cap = cv2.VideoCapture(0)
 
-# === Video processor ===
-class ASLProcessor(VideoProcessorBase):
-    def __init__(self):
-        self.expression_handler = ExpressionHandler()
-        self.model = ASLClassificationModel.load_model(f"models/{MODEL_NAME}")
+    # Create message handler
+    expression_handler = ExpressionHandler()
 
-        self.mp_face_mesh = mp.solutions.face_mesh
-        self.face_mesh = self.mp_face_mesh.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=MODEL_CONFIDENCE,
-            min_tracking_confidence=MODEL_CONFIDENCE
-        )
+    # Streamlit app
+    st.set_page_config(layout="wide")
+    st.markdown("""
+        <style>
+            .big-font {
+                color: #e76f51 !important;
+                font-size: 60px !important;
+                border: 0.5rem solid #fcbf49 !important;
+                border-radius: 2rem;
+                text-align: center;
+            }
+        </style>
+    """, unsafe_allow_html=True)
 
-        self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(
-            max_num_hands=2,
-            min_detection_confidence=MODEL_CONFIDENCE,
-            min_tracking_confidence=MODEL_CONFIDENCE
-        )
+    # Create two columns
+    col1, col2 = st.columns([4, 2])
 
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.message = ""
+    # Create a placeholder for the webcam feed in the first column
+    with col1:
+        video_placeholder = st.empty()
 
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        image = frame.to_ndarray(format="bgr24")
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # Create a placeholder for prediction text in the second column
+    with col2:
+        prediction_placeholder = st.empty()
 
-        # Nhận diện khuôn mặt và tay
-        face_results = self.face_mesh.process(image_rgb)
-        hand_results = self.hands.process(image_rgb)
+    # Load model
+    print("Initialising model ...")
+    model = ASLClassificationModel.load_model(f"models/{MODEL_NAME}")
 
-        # Trích xuất đặc trưng & dự đoán
-        feature = extract_features(self.mp_hands, face_results, hand_results)
-        expression = self.model.predict(feature)
-        self.expression_handler.receive(expression)
-        self.message = self.expression_handler.get_message()
+    # Initialize MediaPipe Face Mesh
+    mp_face_mesh = mp.solutions.face_mesh
+    face_mesh = mp_face_mesh.FaceMesh(max_num_faces=1,
+                                      refine_landmarks=True,
+                                      min_detection_confidence=MODEL_CONFIDENCE,
+                                      min_tracking_confidence=MODEL_CONFIDENCE)
 
-        # Vẽ landmark khuôn mặt
+    # Initialize MediaPipe Hands
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands(max_num_hands=2,
+                           min_detection_confidence=MODEL_CONFIDENCE,
+                           min_tracking_confidence=MODEL_CONFIDENCE)
+
+    # Initialize drawing utility
+    mp_drawing = mp.solutions.drawing_utils
+    drawing_spec = mp_drawing.DrawingSpec(thickness=1, circle_radius=1)
+
+    # Starting the application
+    print("Starting application")
+
+    # Set up the holistic model
+    while cap.isOpened():
+        # Check if getting frame is successful
+        success, image = cap.read()
+        if not success:
+            print("Ignoring empty camera frame.")
+            continue
+
+        # Convert the image to RGB
+        image.flags.writeable = False
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        # Process the image and find faces
+        face_results = face_mesh.process(image)
+
+        # Process the image and find hands
+        hand_results = hands.process(image)
+
+        # Extract feature from face and hand results
+        feature = extract_features(mp_hands, face_results, hand_results)
+        expression = model.predict(feature)
+        expression_handler.receive(expression)
+
+        # Draw the face mesh annotations on the image
         if face_results.multi_face_landmarks:
             for face_landmarks in face_results.multi_face_landmarks:
-                self.mp_drawing.draw_landmarks(
+                mp_drawing.draw_landmarks(
                     image=image,
                     landmark_list=face_landmarks,
-                    connections=self.mp_face_mesh.FACEMESH_TESSELATION,
-                    connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=1)
+                    connections=mp_face_mesh.FACEMESH_TESSELATION,
+                    landmark_drawing_spec=None,
+                    connection_drawing_spec=mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=1, circle_radius=1)
                 )
 
-        # Vẽ landmark tay
+        # Draw the hand annotations on the image
         if hand_results.multi_hand_landmarks:
             for hand_landmarks in hand_results.multi_hand_landmarks:
-                self.mp_drawing.draw_landmarks(
+                mp_drawing.draw_landmarks(
                     image=image,
                     landmark_list=hand_landmarks,
-                    connections=self.mp_hands.HAND_CONNECTIONS,
-                    landmark_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2),
-                    connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2)
+                    connections=mp_hands.HAND_CONNECTIONS,
+                    landmark_drawing_spec=mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                    connection_drawing_spec=mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
                 )
 
-        return av.VideoFrame.from_ndarray(image, format="bgr24")
+        # Display the image and prediction
+        video_placeholder.image(image, channels="RGB", use_column_width=True)
+        prediction_placeholder.markdown(f'''<h2 class="python scripts/train.py --model_name=sign_modelbig-font">{expression_handler.get_message()}</h2>''', unsafe_allow_html=True)
 
-# === Khởi chạy webcam ===
-ctx = webrtc_streamer(
-    key="asl-stream",
-    video_processor_factory=ASLProcessor,
-    media_stream_constraints={"video": True, "audio": False},
-    async_processing=True
-)
+        # Press 'q' to quit
+        if cv2.waitKey(5) & 0xFF == ord('q'):
+            break
 
-# Hiển thị dự đoán
-if ctx and ctx.state.playing:
-    while True:
-        if ctx.video_processor:
-            prediction = ctx.video_processor.message
-            if prediction:
-                prediction_placeholder.markdown(f'''<h2 class="big-font">{prediction}</h2>''', unsafe_allow_html=True)
+    # Release the webcam and close windows
+    cap.release()
+    cv2.destroyAllWindows()
