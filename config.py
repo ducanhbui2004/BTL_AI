@@ -2,5 +2,5 @@
 FEATURES_PER_HAND = 21
 
 # Name of the model
-MODEL_NAME = "final.pkl"
+MODEL_NAME = "vemohinh.pkl"
 MODEL_CONFIDENCE = 0.5
