@@ -1,19 +1,19 @@
 import cv2
 import mediapipe as mp
-import argparse
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+import av
+import warnings
 
 from utils.feature_extraction import *
 from utils.strings import *
 from utils.model import ASLClassificationModel
 from config import MODEL_NAME, MODEL_CONFIDENCE
 
-# Temporarily ignore warning
-import warnings
+# Bỏ qua cảnh báo
 warnings.filterwarnings("ignore")
 
-# Streamlit UI
+# Giao diện Streamlit
 st.set_page_config(layout="wide")
 st.markdown("""
     <style>
@@ -27,12 +27,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Create layout
+# Chia cột
 col1, col2 = st.columns([4, 2])
 prediction_placeholder = col2.empty()
 
-
-# === Custom VideoProcessor class for webcam ===
+# === Video processor ===
 class ASLProcessor(VideoProcessorBase):
     def __init__(self):
         self.expression_handler = ExpressionHandler()
@@ -56,21 +55,21 @@ class ASLProcessor(VideoProcessorBase):
         self.mp_drawing = mp.solutions.drawing_utils
         self.message = ""
 
-    def recv(self, frame):
+    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
         image = frame.to_ndarray(format="bgr24")
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        # MediaPipe processing
+        # Nhận diện khuôn mặt và tay
         face_results = self.face_mesh.process(image_rgb)
         hand_results = self.hands.process(image_rgb)
 
-        # Feature extraction + predict
+        # Trích xuất đặc trưng & dự đoán
         feature = extract_features(self.mp_hands, face_results, hand_results)
         expression = self.model.predict(feature)
         self.expression_handler.receive(expression)
         self.message = self.expression_handler.get_message()
 
-        # Draw face mesh
+        # Vẽ landmark khuôn mặt
         if face_results.multi_face_landmarks:
             for face_landmarks in face_results.multi_face_landmarks:
                 self.mp_drawing.draw_landmarks(
@@ -80,7 +79,7 @@ class ASLProcessor(VideoProcessorBase):
                     connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=1)
                 )
 
-        # Draw hand landmarks
+        # Vẽ landmark tay
         if hand_results.multi_hand_landmarks:
             for hand_landmarks in hand_results.multi_hand_landmarks:
                 self.mp_drawing.draw_landmarks(
@@ -91,15 +90,20 @@ class ASLProcessor(VideoProcessorBase):
                     connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2)
                 )
 
-        return frame.from_ndarray(image, format="bgr24")
+        return av.VideoFrame.from_ndarray(image, format="bgr24")
 
+# === Khởi chạy webcam ===
+ctx = webrtc_streamer(
+    key="asl-stream",
+    video_processor_factory=ASLProcessor,
+    media_stream_constraints={"video": True, "audio": False},
+    async_processing=True
+)
 
-# === Stream webcam and display ===
-ctx = webrtc_streamer(key="asl-stream", video_processor_factory=ASLProcessor, client_settings={"rtcConfiguration": {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}})
-
-# Display prediction continuously
-while True:
-    if ctx.video_processor:
-        prediction = ctx.video_processor.message
-        if prediction:
-            prediction_placeholder.markdown(f'''<h2 class="big-font">{prediction}</h2>''', unsafe_allow_html=True)
+# Hiển thị dự đoán
+if ctx and ctx.state.playing:
+    while True:
+        if ctx.video_processor:
+            prediction = ctx.video_processor.message
+            if prediction:
+                prediction_placeholder.markdown(f'''<h2 class="big-font">{prediction}</h2>''', unsafe_allow_html=True)
