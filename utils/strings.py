@@ -57,11 +57,11 @@ class ExpressionHandler:
     }
     
     def __init__(self):
-        # Save the current message and the time received the current message
+        # Khởi tạo: lưu trữ thông điệp hiện tại
         self.current_message = ""
 
     def receive(self, message):
-        self.current_message = message
+        self.current_message = message   # Nhận thông điệp mới từ mô hình và lưu lại
 
     def get_message(self):
-        return ExpressionHandler.MAPPING[self.current_message]
+        return ExpressionHandler.MAPPING[self.current_message] # Trả về thông điệp 
