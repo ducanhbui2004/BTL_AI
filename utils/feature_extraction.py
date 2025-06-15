@@ -9,25 +9,25 @@ def extract_hand_result(mp_hands, hand_results):
     :param hand_results from media_pipe
     :return: features
     """
-    # If multi-hand landmark is None -> Return zeros vector
+    #Nếu không phát hiện được landmark bàn tay nào -> trả về vector toàn số 0
     if hand_results.multi_hand_landmarks is None:
-        # 21 x 2 zero array for each hand -> 21 x 4 zero array for two hands
+        # Mỗi tay có 21 điểm, mỗi điểm gồm 2 tọa độ (x, y) => 21 x 2
         return np.zeros(FEATURES_PER_HAND * 4)
 
-    # Get the number of hands
+    # Lấy số lượng tay được phát hiện
     num_hands = len(hand_results.multi_hand_landmarks)
     handedness = hand_results.multi_handedness
 
-    # Handle handedness
+    # Xử lý sự thuận tay
     if num_hands == 1:
-        # Check which hand
+        # kiểm tra xem có phải là tay phải hay tay trái
         hand_array = extract_single_hand(mp_hands, hand_results.multi_hand_landmarks[0])
         if handedness[0].classification[0].label == "Right":
             return np.hstack((hand_array.flatten(), np.zeros(FEATURES_PER_HAND * 2)))
         else:
             return np.hstack((np.zeros(FEATURES_PER_HAND * 2), hand_array.flatten()))
     else:
-        # Get the left and right hand
+        # Nếu có đủ hai tay -> phân biệt trái/phải
         if handedness[0].classification[0].label == "Right":
             left_hand = hand_results.multi_hand_landmarks[0]
             right_hand = hand_results.multi_hand_landmarks[1]
@@ -35,7 +35,7 @@ def extract_hand_result(mp_hands, hand_results):
             left_hand = hand_results.multi_hand_landmarks[1]
             right_hand = hand_results.multi_hand_landmarks[0]
 
-        # Get left and right hand
+        # Trích xuất đặc trưng từng tay
         left_hand_array = extract_single_hand(mp_hands, left_hand)
         right_hand_array = extract_single_hand(mp_hands, right_hand)
 
@@ -43,16 +43,16 @@ def extract_hand_result(mp_hands, hand_results):
 
 
 def extract_single_hand(mp_hands, hand_landmarks):
-    # Create a 2D NumPy array to store the landmarks
+    # Tạo mảng NumPy 2 chiều để lưu tọa độ các điểm landmark
     landmarks_array = np.zeros((21, 2))
 
-    # Function to safely get landmark coordinates
+    # Hàm phụ để lấy tọa độ an toàn
     def get_landmark(landmark):
         if landmark is None:
             return np.array([0.0, 0.0])
         return np.array([landmark.x, landmark.y])
 
-    # Extract each landmark individually
+    # Lấy lần lượt từng điểm landmark theo thứ tự
     landmarks_array[0] = get_landmark(hand_landmarks.landmark[mp_hands.HandLandmark.WRIST])
     landmarks_array[1] = get_landmark(hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_CMC])
     landmarks_array[2] = get_landmark(hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_MCP])
@@ -84,15 +84,15 @@ def extract_face_result(face_results):
     :param face_results from mediapipe
     :return: features
     """
-    # Get all the features from face results
+    # Lấy khuôn mặt đầu tiên
     single_face = face_results.multi_face_landmarks[0]
 
-    # Get all the landmark into a 2-d numpy array
+    # Lưu toàn bộ điểm landmark khuôn mặt vào mảng 2 chiều
     face_array = np.array([
         [lm.x, lm.y] for lm in single_face.landmark
     ])
 
-    # Get the mean
+    # Trả về trung bình các tọa độ landmark
     return np.mean(face_array, axis=0)
 
 
